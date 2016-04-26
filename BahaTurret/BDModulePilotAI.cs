@@ -145,6 +145,9 @@ namespace BahaTurret
         float lastCosAoA = 0;
         float lastPitchInput = 0;
 
+        //Controller Integral
+        float pitchIntegral = 0;
+
         //instantaneous turn radius and possible acceleration from lift
         //properties can be used so that other AI modules can read this for future maneuverability comparisons between craft
         float turnRadius;
@@ -1076,10 +1079,16 @@ namespace BahaTurret
 			float steerPitch = (0.015f * steerMult * pitchError) - (steerDamping * -localAngVel.x);
 			float steerYaw = (0.005f * steerMult * yawError) - (steerDamping * 0.2f * -localAngVel.z);
 
+            pitchIntegral += pitchError;
+
 			steerPitch *= dynamicAdjustment;
 			steerYaw *= dynamicAdjustment;
 
-			float roll = Mathf.Clamp(steerRoll, -maxSteer, maxSteer);
+            float pitchKi = 0.1f; //This is what should be allowed to be tweaked by the player, just like the steerMult, it is very low right now
+            pitchIntegral = Mathf.Clamp(pitchIntegral, -0.2f / (pitchKi * dynamicAdjustment), 0.2f / (pitchKi * dynamicAdjustment)); //0.2f is the limit of the integral variable, making it bigger increases overshoot
+            steerPitch += pitchIntegral * pitchKi * dynamicAdjustment; //Adds the integral component to the mix
+
+            float roll = Mathf.Clamp(steerRoll, -maxSteer, maxSteer);
 			s.roll = roll;
 			s.yaw = Mathf.Clamp(steerYaw, -finalMaxSteer, finalMaxSteer);
 			s.pitch = Mathf.Clamp(steerPitch, Mathf.Min(-finalMaxSteer, -0.2f), finalMaxSteer);
