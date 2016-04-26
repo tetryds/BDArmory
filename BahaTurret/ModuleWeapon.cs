@@ -11,6 +11,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using KSP.UI.Screens;
 namespace BahaTurret
 {
 	public class ModuleWeapon : PartModule, IBDWeapon
@@ -196,6 +197,7 @@ namespace BahaTurret
 		private Vector3 targetVelocity;
 		private Vector3 targetAcceleration;
 		Vector3 finalAimTarget;
+        Vector3 lastFinalAimTarget;
 		public Vessel legacyTargetVessel;
 		bool targetAcquired = false;
 		
@@ -203,13 +205,13 @@ namespace BahaTurret
 		//private int numberOfGuns = 0;
 
 		//UI gauges(next to staging icon)
-		private VInfoBox heatGauge = null;
-		private VInfoBox reloadBar = null;
+		private ProtoStageIconInfo heatGauge = null;
+		private ProtoStageIconInfo reloadBar = null;
 		[KSPField]
 		public bool showReloadMeter = false; //used for cannons or guns with extremely low rate of fire
 
-		//AI will fire gun if target is within this angle(degrees) of barrel
-		public float maxAutoFireAngle = 2;
+		//AI will fire gun if target is within this Cos(angle) of barrel
+        public float maxAutoFireCosAngle = 0.9993908f;   //corresponds to ~2 degrees
 		
 		//aimer textures
 		Vector3 pointingAtPosition;
@@ -270,6 +272,25 @@ namespace BahaTurret
 
 		//
 		float timeFired = 0;
+        public float initialFireDelay = 0;     //used to ripple fire multiple weapons of this type
+
+		[KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Barrage")]
+        public bool useRippleFire = true;
+		[KSPEvent(guiActive = false, guiActiveEditor = true, guiName = "Toggle Barrage")]
+		public void ToggleRipple()
+		{
+			foreach(var craftPart in EditorLogic.fetch.ship.parts)
+			{
+				if(craftPart.name == part.name)
+				{
+					foreach(var weapon in craftPart.FindModulesImplementing<ModuleWeapon>())
+					{
+						weapon.useRippleFire = !weapon.useRippleFire;
+					}
+				}
+			}
+		}
+
 		bool pointingAtSelf = false; //true if weapon is pointing at own vessel
 		bool userFiring = false;
 		Vector3 laserPoint;
@@ -412,6 +433,12 @@ namespace BahaTurret
 				emitter.emit = false;
 			}
 
+			if(roundsPerMinute >= 1500)
+			{
+				Events["ToggleRipple"].guiActiveEditor = false;
+				Fields["useRippleFire"].guiActiveEditor = false;
+			}
+
 			if(airDetonation)
 			{
 				var detRange = (UI_FloatRange)Fields["defaultDetonationRange"].uiControlEditor;
@@ -546,6 +573,7 @@ namespace BahaTurret
 			BDArmorySettings.OnVolumeChange -= UpdateVolume;
 		}
 
+		public int rippleIndex = 0;
 		void Update()
 		{
 			if(HighLogic.LoadedSceneIsFlight && FlightGlobals.ready && !vessel.packed && vessel.IsControllable)
@@ -565,16 +593,18 @@ namespace BahaTurret
 	
 				if(weaponState == WeaponStates.Enabled && (TimeWarp.WarpMode != TimeWarp.Modes.HIGH || TimeWarp.CurrentRate == 1))
 				{
-					
-
 					userFiring = (BDInputUtils.GetKey(BDInputSettingsFields.WEAP_FIRE_KEY) && (vessel.isActiveVessel || BDArmorySettings.REMOTE_SHOOTING) && !MapView.MapIsEnabled && !aiControlled);
-					if((userFiring || autoFire || agHoldFiring) && (yawRange == 0 || (maxPitch-minPitch) == 0 || turret.TargetInRange(finalAimTarget, 10, float.MaxValue)))
+					if((userFiring || autoFire || agHoldFiring) && (yawRange == 0 || (maxPitch - minPitch) == 0 || turret.TargetInRange(finalAimTarget, 10, float.MaxValue)))
 					{
-						if(eWeaponType == WeaponTypes.Ballistic || eWeaponType == WeaponTypes.Cannon)
+						if(useRippleFire && (pointingAtSelf || isOverheated))
 						{
-							finalFire = true;
-							//Fire();
+							StartCoroutine(IncrementRippleIndex(0));
+							finalFire = false;
 						}
+						else if(eWeaponType == WeaponTypes.Ballistic || eWeaponType == WeaponTypes.Cannon)
+						{
+                            finalFire = true;
+                        }
 					}
 					else
 					{
@@ -590,18 +620,16 @@ namespace BahaTurret
 				}
 				else
 				{
-					audioSource.Stop ();
+					audioSource.Stop();
 					autoFire = false;
 				}
 
 				if(spinningDown && spinDownAnimation && hasFireAnimation)
 				{
-					if(fireState.normalizedTime>1) fireState.normalizedTime = 0;
+					if(fireState.normalizedTime > 1) fireState.normalizedTime = 0;
 					fireState.speed = fireAnimSpeed;
 					fireAnimSpeed = Mathf.Lerp(fireAnimSpeed, 0, 0.04f);
 				}
-				
-				
 			}
 		}
 
@@ -614,6 +642,7 @@ namespace BahaTurret
 			if(eWeaponType != WeaponTypes.Laser) yield return new WaitForEndOfFrame();
 			if(finalFire)
 			{
+                
 				if(eWeaponType == WeaponTypes.Laser)
 				{
 					if(FireLaser())
@@ -634,7 +663,18 @@ namespace BahaTurret
 				}
 				else
 				{
-					Fire();
+                    if (useRippleFire && weaponManager.gunRippleIndex != rippleIndex)
+                    {
+                        //timeFired = Time.time + (initialFireDelay - (60f / roundsPerMinute)) * TimeWarp.CurrentRate;
+                        finalFire = false;
+                    }
+                    else
+                    {
+                        finalFire = true;
+                    }
+
+                    if(finalFire)
+                        Fire();
 				}
 
 				finalFire = false;
@@ -644,11 +684,11 @@ namespace BahaTurret
 		}
 
 		bool finalFire = false;
-		public bool isFiring
+		public bool recentlyFiring //used by guard to know if it should evaid this
 		{
 			get
 			{
-				return Time.time - timeFired < 120 / roundsPerMinute;
+				return Time.time - timeFired < 1;
 			}
 		}
 
@@ -667,11 +707,11 @@ namespace BahaTurret
 
 				if(showReloadMeter)
 				{
-					UpdateReloadMeter();
+					//UpdateReloadMeter();
 				}
 				else
 				{
-					UpdateHeatMeter();
+					//UpdateHeatMeter();
 				}
 				UpdateHeat();
 
@@ -689,23 +729,6 @@ namespace BahaTurret
 						if((userFiring || autoFire || agHoldFiring) && (!turret || turret.TargetInRange(targetPosition, 10, float.MaxValue)))
 						{
 							finalFire = true;
-							/*
-							if(FireLaser())
-						   	{
-								for(int i = 0; i < laserRenderers.Length; i++)
-								{
-									laserRenderers[i].enabled = true;
-								}
-							}
-							else
-							{
-								for(int i = 0; i < laserRenderers.Length; i++)
-								{
-									laserRenderers[i].enabled = false;
-								}
-								audioSource.Stop ();	
-							}
-							*/
 						}
 						else
 						{
@@ -731,11 +754,23 @@ namespace BahaTurret
 				if(targetAcquired && aiControlled)
 				{
 					Transform fireTransform = fireTransforms[0];
-					Vector3 targetDirection = (finalAimTarget)-fireTransform.position;
+					Vector3 targetRelPos = (finalAimTarget)-fireTransform.position;
 					Vector3 aimDirection = fireTransform.forward;
-					float targetAngle = Vector3.Angle(aimDirection, targetDirection);
+                    float targetCosAngle = Vector3.Dot(aimDirection, targetRelPos.normalized);
 
-					if(targetAngle < maxAutoFireAngle)
+                    Vector3 targetDiffVec = finalAimTarget - lastFinalAimTarget;
+                    Vector3 projectedTargetPos = targetDiffVec;
+                    //projectedTargetPos /= TimeWarp.fixedDeltaTime;
+                    //projectedTargetPos *= TimeWarp.fixedDeltaTime;
+                    projectedTargetPos *= 2;        //project where the target will be in 2 timesteps
+                    projectedTargetPos += finalAimTarget;
+
+                    targetDiffVec.Normalize();
+                    Vector3 lastTargetRelPos = (lastFinalAimTarget) - fireTransform.position;
+
+                    if (BDATargetManager.CheckSafeToFireGuns(weaponManager, aimDirection, 1000, 0.999848f) &&  //~1 degree of unsafe angle
+                        (targetCosAngle >= maxAutoFireCosAngle || //check if directly on target
+                        (Vector3.Dot(targetDiffVec, targetRelPos) * Vector3.Dot(targetDiffVec, lastTargetRelPos) < 0 && targetCosAngle > 0)))          //check if target will pass this point soon
 					{
 						autoFire = true;
 					}
@@ -755,8 +790,8 @@ namespace BahaTurret
 					autoFire = false;
 					legacyTargetVessel = null;
 				}
-
 			}
+            lastFinalAimTarget = finalAimTarget;
 		}
 			
 
@@ -889,14 +924,13 @@ namespace BahaTurret
 			}
 
 			float timeGap = (60/roundsPerMinute) * TimeWarp.CurrentRate;
-			
-			if(Time.time-timeFired > timeGap && !isOverheated && !pointingAtSelf)
+			if(Time.time-timeFired > timeGap && !isOverheated && !pointingAtSelf && !Misc.CheckMouseIsOnGui() && WMgrAuthorized())
 			{
 				bool effectsShot = false;
 				//Transform[] fireTransforms = part.FindModelTransforms("fireTransform");
 				for(int i = 0; i < fireTransforms.Length; i++)
 				{
-					if(!Misc.CheckMouseIsOnGui() && WMgrAuthorized() && (BDArmorySettings.INFINITE_AMMO || part.RequestResource(ammoName, requestResourceAmount)>0))
+					if((BDArmorySettings.INFINITE_AMMO || part.RequestResource(ammoName, requestResourceAmount)>0))
 					{
 						Transform fireTransform = fireTransforms[i];
 						spinningDown = false;
@@ -904,7 +938,7 @@ namespace BahaTurret
 						//recoil
 						if(hasRecoil)
 						{
-							gameObject.rigidbody.AddForceAtPosition((-fireTransform.forward) * (bulletVelocity*bulletMass), fireTransform.position, ForceMode.Impulse);
+							part.rb.AddForceAtPosition((-fireTransform.forward) * (bulletVelocity*bulletMass), fireTransform.position, ForceMode.Impulse);
 						}
 						
 						if(!effectsShot)
@@ -923,13 +957,13 @@ namespace BahaTurret
 									audioSource.clip = fireSound;
 									audioSource.loop = false;
 									audioSource.time = 0;
-									audioSource.Play();	
+									audioSource.Play();
 								}
 								else
 								{
 									if (audioSource.time >= fireSound.length)
 									{
-										audioSource.time = soundRepeatTime;	
+										audioSource.time = soundRepeatTime;
 									}
 								}
 							}
@@ -937,20 +971,22 @@ namespace BahaTurret
 							//animation
 							if(hasFireAnimation)
 							{
-								float unclampedSpeed = (roundsPerMinute*fireState.length)/60;
+								float unclampedSpeed = (roundsPerMinute*fireState.length)/60f;
 								float lowFramerateFix = 1;
-								if(roundsPerMinute > 500)
+								if(roundsPerMinute > 500f)
 								{
 									lowFramerateFix = (0.02f/Time.deltaTime);
 								}
 								fireAnimSpeed = Mathf.Clamp (unclampedSpeed, 1f * lowFramerateFix, 20f * lowFramerateFix);
 								fireState.enabled = true;
-								if(unclampedSpeed == fireAnimSpeed)
+								if(unclampedSpeed == fireAnimSpeed || fireState.normalizedTime > 1)
 								{
 									fireState.normalizedTime = 0;
 								}
 								fireState.speed = fireAnimSpeed;
 								fireState.normalizedTime = Mathf.Repeat(fireState.normalizedTime, 1);
+
+								//Debug.Log("fireAnim time: " + fireState.normalizedTime + ", speed; " + fireState.speed);
 							}
 							
 							//muzzle flash
@@ -1089,12 +1125,26 @@ namespace BahaTurret
 					}
 				}
 
-
+				if(useRippleFire)
+				{
+					StartCoroutine(IncrementRippleIndex(initialFireDelay * TimeWarp.CurrentRate));
+				}
 			}
 			else
 			{
 				spinningDown = true;	
 			}
+		}
+
+		IEnumerator IncrementRippleIndex(float delay)
+		{
+			if(delay > 0)
+			{
+				yield return new WaitForSeconds(delay);
+			}
+			weaponManager.gunRippleIndex = weaponManager.gunRippleIndex +1;
+
+			//Debug.Log("incrementing ripple index to: " + weaponManager.gunRippleIndex);
 		}
 
 
@@ -1243,6 +1293,8 @@ namespace BahaTurret
 					pointingAtPosition = fireTransforms[i].position + (ray.direction * (maxTargetingRange));
 				}
 			}
+
+
 		}
 
 		void RunTrajectorySimulation()
@@ -1412,6 +1464,7 @@ namespace BahaTurret
 
 			weaponState = WeaponStates.Enabled;
 			UpdateGUIWeaponState();
+			BDArmorySettings.Instance.UpdateCursorState();
 		}
 
 		void UpdateGUIWeaponState()
@@ -1435,7 +1488,7 @@ namespace BahaTurret
 		{
 			weaponState = WeaponStates.PoweringDown;
 			UpdateGUIWeaponState();
-
+			BDArmorySettings.Instance.UpdateCursorState();
 			if(turret)
 			{
 				yield return new WaitForSeconds(0.2f);
@@ -1473,6 +1526,7 @@ namespace BahaTurret
 				audioSource.Stop ();
 				wasFiring = false;
 				audioSource2.PlayOneShot(overheatSound);
+				weaponManager.ResetGuardInterval();
 			}
 			if(heat < maxHeat/3 && isOverheated) //reset on cooldown
 			{
@@ -1538,6 +1592,7 @@ namespace BahaTurret
 				audioSource.maxDistance = 1000;
 				audioSource.priority = 10;
 				audioSource.dopplerLevel = 0;
+				audioSource.spatialBlend = 1;
 			}
 
 			if(!audioSource2)
@@ -1548,6 +1603,7 @@ namespace BahaTurret
 				audioSource2.maxDistance = 1000;
 				audioSource2.dopplerLevel = 0;
 				audioSource2.priority = 10;
+				audioSource2.spatialBlend = 1;
 			}
 			
 			if(reloadAudioPath != string.Empty)
@@ -1563,7 +1619,7 @@ namespace BahaTurret
 			{
 				lowpassFilter = gameObject.AddComponent<AudioLowPassFilter>();
 				lowpassFilter.cutoffFrequency = BDArmorySettings.IVA_LOWPASS_FREQ;
-				lowpassFilter.lowpassResonaceQ = 1f;
+				lowpassFilter.lowpassResonanceQ = 1f;
 			}
 
 			UpdateVolume();
@@ -1588,7 +1644,7 @@ namespace BahaTurret
 				laserRenderers[i].material = new Material(Shader.Find ("KSP/Particles/Alpha Blended"));
 				laserRenderers[i].material.SetColor("_TintColor", laserColor);
 				laserRenderers[i].material.mainTexture = GameDatabase.Instance.GetTexture("BDArmory/Textures/laser", false);
-				laserRenderers[i].castShadows = false;
+				laserRenderers[i].shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;//= false;
 				laserRenderers[i].receiveShadows = false;
 				laserRenderers[i].SetWidth(tracerStartWidth, tracerEndWidth);
 				laserRenderers[i].SetVertexCount(2);
@@ -1640,10 +1696,10 @@ namespace BahaTurret
             }
         }
         
-        private VInfoBox InitReloadBar()
+		private ProtoStageIconInfo InitReloadBar()
 		{
-			VInfoBox v = part.stackIcon.DisplayInfo();
-			
+			ProtoStageIconInfo v = part.stackIcon.DisplayInfo();
+
 			v.SetMsgBgColor(XKCDColors.DarkGrey);
 			v.SetMsgTextColor(XKCDColors.White);
 			v.SetMessage("Reloading");
@@ -1653,9 +1709,9 @@ namespace BahaTurret
 			return v;
 		}
 
-		private VInfoBox InitHeatGauge()  //thanks DYJ
+		private ProtoStageIconInfo InitHeatGauge()  //thanks DYJ
 		{
-			VInfoBox v = part.stackIcon.DisplayInfo();
+			ProtoStageIconInfo v = part.stackIcon.DisplayInfo();
 			
 			v.SetMsgBgColor(XKCDColors.DarkRed);
 			v.SetMsgTextColor(XKCDColors.Orange);
@@ -1800,12 +1856,12 @@ namespace BahaTurret
 
 		void OnGUI()
 		{
-			if(weaponState == WeaponStates.Enabled && vessel && !vessel.packed && vessel.isActiveVessel && BDArmorySettings.DRAW_AIMERS && !aiControlled & !MapView.MapIsEnabled)
+			if(weaponState == WeaponStates.Enabled && vessel && !vessel.packed && vessel.isActiveVessel && BDArmorySettings.DRAW_AIMERS && !aiControlled & !MapView.MapIsEnabled && !pointingAtSelf)
 			{
 				float size = 30;
 				
 				Vector3 reticlePosition;
-				if(BDArmorySettings.AIM_ASSIST && vessel.srf_velocity.sqrMagnitude < Mathf.Pow(750,2))
+				if(BDArmorySettings.AIM_ASSIST && vessel.srfSpeed < Krakensbane.Threshold)
 				{
 					if(targetAcquired && (slaved || yawRange < 1 || maxPitch-minPitch < 1))
 					{
@@ -1866,6 +1922,8 @@ namespace BahaTurret
 			if(fireTransforms == null || fireTransforms[0] == null) return;
 
 			Transform refTransform = EditorLogic.RootPart.GetReferenceTransform();
+
+			if(!refTransform) return;
 
 			Vector3 fwdPos = fireTransforms[0].position + (5 * fireTransforms[0].forward);
 			BDGUIUtils.DrawLineBetweenWorldPositions(fireTransforms[0].position, fwdPos, 4, Color.green);

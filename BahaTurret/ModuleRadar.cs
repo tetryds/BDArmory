@@ -154,7 +154,27 @@ namespace BahaTurret
 		public bool lockingPitch = true;
 		public bool lockingYaw = true;
 
-		public MissileFire weaponManager;
+		private MissileFire wpmr;
+		public MissileFire weaponManager
+		{
+			get
+			{
+				if(wpmr == null || wpmr.vessel!=vessel)
+				{
+					wpmr = null;
+					foreach(var mf in vessel.FindPartModulesImplementing<MissileFire>())
+					{
+						wpmr = mf;
+					}
+				}
+
+				return wpmr;
+			}
+			set
+			{
+				wpmr = value;
+			}
+		}
 
 		public VesselRadarData vesselRadarData;
 
@@ -176,9 +196,11 @@ namespace BahaTurret
 			Events["Toggle"].guiName = radarEnabled ? "Disable Radar" : "Enable Radar";
 		}
 
-		void EnsureVesselRadarData()
+		public void EnsureVesselRadarData()
 		{
-			if(vesselRadarData == null)
+			myVesselID = vessel.id.ToString();
+
+			if(vesselRadarData == null || vesselRadarData.vessel!=vessel)
 			{
 				vesselRadarData = vessel.gameObject.GetComponent<VesselRadarData>();
 
@@ -210,8 +232,6 @@ namespace BahaTurret
 
 
 			vesselRadarData.AddRadar(this);
-
-
 		}
 
 		public void DisableRadar()
@@ -440,7 +460,7 @@ namespace BahaTurret
 				//UpdateInputs();
 			}
 
-			drawGUI = (HighLogic.LoadedSceneIsFlight && FlightGlobals.ready && !vessel.packed && radarEnabled && vessel.isActiveVessel && BDArmorySettings.GAME_UI_ENABLED);
+			drawGUI = (HighLogic.LoadedSceneIsFlight && FlightGlobals.ready && !vessel.packed && radarEnabled && vessel.isActiveVessel && BDArmorySettings.GAME_UI_ENABLED && !MapView.MapIsEnabled);
 
 			//UpdateSlaveData();
 		}
@@ -498,7 +518,7 @@ namespace BahaTurret
 
 		void LateUpdate()
 		{
-			if (HighLogic.LoadedSceneIsFlight && canScan)
+			if (HighLogic.LoadedSceneIsFlight && (canScan || canLock))
 			{
 				UpdateModel ();
 			}
@@ -509,11 +529,11 @@ namespace BahaTurret
 		void UpdateModel()
 		{
 			//model rotation
-			if(rotationTransform)
+
+			if(radarEnabled)
 			{
-				if(radarEnabled)
+				if(rotationTransform && canScan)
 				{
-					
 					Vector3 direction;
 					if(locked)
 					{
@@ -530,29 +550,34 @@ namespace BahaTurret
 						rotationTransform.localRotation = Quaternion.Lerp(rotationTransform.localRotation, Quaternion.LookRotation(localDirection, Vector3.up), 10 * TimeWarp.fixedDeltaTime);
 					}
 
-
-					//lock turret
-					if(lockingTurret)
-					{
-						if(locked)
-						{
-							lockingTurret.AimToTarget(lockedTarget.predictedPosition, lockingPitch, lockingYaw);
-						}
-						else
-						{
-							lockingTurret.ReturnTurret();
-						}
-					}
 				}
-				else
+
+				//lock turret
+				if(lockingTurret && canLock)
 				{
-					rotationTransform.localRotation = Quaternion.Lerp(rotationTransform.localRotation, Quaternion.identity, 5 * TimeWarp.fixedDeltaTime);
-					if(lockingTurret)
+					if(locked)
+					{
+						lockingTurret.AimToTarget(lockedTarget.predictedPosition, lockingPitch, lockingYaw);
+					}
+					else
 					{
 						lockingTurret.ReturnTurret();
 					}
 				}
 			}
+			else
+			{
+				if(rotationTransform)
+				{
+					rotationTransform.localRotation = Quaternion.Lerp(rotationTransform.localRotation, Quaternion.identity, 5 * TimeWarp.fixedDeltaTime);
+				}
+
+				if(lockingTurret)
+				{
+					lockingTurret.ReturnTurret();
+				}
+			}
+
 		}
 
 		public float leftLimit;
@@ -602,18 +627,18 @@ namespace BahaTurret
 
 
 
-		public void TryLockTarget(Vector3 position)
+		public bool TryLockTarget(Vector3 position)
 		{
 			if(!canLock)
 			{
-				return;
+				return false;
 			}
 			Debug.Log ("Trying to radar lock target");
 
 			if(currentLocks == maxLocks)
 			{
 				Debug.Log("This radar ("+ radarName +") already has the maximum allowed targets locked.");
-				return;
+				return false;
 			}
 
 
@@ -640,11 +665,12 @@ namespace BahaTurret
 					Debug.Log ("- Acquired lock on target.");
 					vesselRadarData.AddRadarContact(this, lockedTarget, true);
 					vesselRadarData.UpdateLockedTargets();
-					return;
+					return true;
 				}
 			}
 
 			Debug.Log ("- Failed to lock on target.");
+			return false;
 		}
 
 
@@ -719,7 +745,7 @@ namespace BahaTurret
 
 			if(Vector3.Angle(lockedTarget.position - referenceTransform.position, this.lockedTarget.position - referenceTransform.position) > multiLockFOV / 2)
 			{
-				UnlockTargetAt(index);
+				UnlockTargetAt(index, true);
 				return;
 			}
 
@@ -751,7 +777,7 @@ namespace BahaTurret
 			if(!lockedTarget.exists || (!omnidirectional && Vector3.Angle(lockedTarget.position-referenceTransform.position, transform.up) > directionalFieldOfView/2))
 			{
 				//UnlockAllTargets();
-				UnlockTargetAt(index);
+				UnlockTargetAt(index, true);
 				return;
 			}
 
@@ -759,7 +785,7 @@ namespace BahaTurret
 			if(lockedTarget.vesselJammer && lockedTarget.vesselJammer.lockBreakStrength > lockedTarget.signalStrength*lockedTarget.vesselJammer.rcsReductionFactor)
 			{
 				//UnlockAllTargets();
-				UnlockTargetAt(index);
+				UnlockTargetAt(index, true);
 				return;
 			}
 
@@ -805,10 +831,21 @@ namespace BahaTurret
 			}
 		}
 
-		public void UnlockTargetAt(int index)
+		public void UnlockTargetAt(int index, bool tryRelock = false)
 		{
-			//Vector3 position = lockedTargets[index].position;
 			Vessel rVess = lockedTargets[index].vessel;
+
+			if(tryRelock)
+			{
+				UnlockTargetAt(index, false);
+				if(rVess)
+				{
+					StartCoroutine(RetryLockRoutine(rVess));
+				}
+				return;
+			}
+
+
 			lockedTargets.RemoveAt(index);
 			currLocks = lockedTargets.Count;
 			if(lockedTargetIndex > index)
@@ -824,6 +861,12 @@ namespace BahaTurret
 				//vesselRadarData.UnlockTargetAtPosition(position);
 				vesselRadarData.RemoveVesselFromTargets(rVess);
 			}
+		}
+
+		IEnumerator RetryLockRoutine(Vessel v)
+		{
+			yield return null;
+			vesselRadarData.TryLockTarget(v);
 		}
 
 		public void UnlockTargetVessel(Vessel v)
@@ -938,12 +981,10 @@ namespace BahaTurret
 		{
 			if(drawGUI)
 			{
-
 				if(boresightScan)
 				{
 					BDGUIUtils.DrawTextureOnWorldPos(transform.position + (3500 * transform.up), BDArmorySettings.Instance.dottedLargeGreenCircle, new Vector2(156, 156), 0);
 				}
-
 			}
 		}
 

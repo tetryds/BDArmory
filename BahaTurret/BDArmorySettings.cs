@@ -9,50 +9,72 @@ namespace BahaTurret
 	[KSPAddon(KSPAddon.Startup.EveryScene, false)]
 	public class BDArmorySettings : MonoBehaviour
 	{
+		public static string settingsConfigURL = "GameData/BDArmory/settings.cfg";
 		
 
 		//=======configurable settings
+		[BDAPersistantSettingsField]
 		public static bool INSTAKILL = false;
+		[BDAPersistantSettingsField]
 		public static bool BULLET_HITS = true;
+		[BDAPersistantSettingsField]
 		public static float PHYSICS_RANGE = 0;
+		[BDAPersistantSettingsField]
 		public static bool EJECT_SHELLS = true;
-
+		[BDAPersistantSettingsField]
 		public static bool SHELL_COLLISIONS = true;
-
+		[BDAPersistantSettingsField]
 		public static bool INFINITE_AMMO = false;
+		[BDAPersistantSettingsField]
 		public static bool DRAW_DEBUG_LINES = false;
+		[BDAPersistantSettingsField]
 		public static bool DRAW_DEBUG_LABELS = false;
+		[BDAPersistantSettingsField]
 		public static bool DRAW_AIMERS = true;
+		[BDAPersistantSettingsField]
 		public static bool AIM_ASSIST = true;
+		[BDAPersistantSettingsField]
 		public static bool REMOTE_SHOOTING = false;
+		[BDAPersistantSettingsField]
 		public static bool BOMB_CLEARANCE_CHECK = true;
-		public static float DMG_MULTIPLIER = 6000;
+		[BDAPersistantSettingsField]
+		public static float DMG_MULTIPLIER = 100;
+		[BDAPersistantSettingsField]
 		public static float FLARE_CHANCE_FACTOR = 25;
+
 		public static bool SMART_GUARDS = true;
+
+		[BDAPersistantSettingsField]
 		public static float MAX_BULLET_RANGE = 8000;
+
+		[BDAPersistantSettingsField]
 		public static float TRIGGER_HOLD_TIME = 0.3f;
 
-
-
+		[BDAPersistantSettingsField]
 		public static bool ALLOW_LEGACY_TARGETING = true;
 
+		[BDAPersistantSettingsField]
 		public static float TARGET_CAM_RESOLUTION = 1024;
+		[BDAPersistantSettingsField]
 		public static bool BW_TARGET_CAM = true;
+		[BDAPersistantSettingsField]
 		public static float SMOKE_DEFLECTION_FACTOR = 10;
-
+		[BDAPersistantSettingsField]
 		public static float FLARE_THERMAL = 1900;
-
+		[BDAPersistantSettingsField]
 		public static float BDARMORY_UI_VOLUME = 0.35f; 
+		[BDAPersistantSettingsField]
 		public static float BDARMORY_WEAPONS_VOLUME = 0.32f;
+		[BDAPersistantSettingsField]
+		public static float MAX_GUARD_VISUAL_RANGE = 5000;
 
-		public static float MAX_GUARD_VISUAL_RANGE = 3500;
-
-
+		[BDAPersistantSettingsField]
 		public static float GLOBAL_LIFT_MULTIPLIER = 0.20f;
+		[BDAPersistantSettingsField]
 		public static float GLOBAL_DRAG_MULTIPLIER = 4f;
-
+		[BDAPersistantSettingsField]
 		public static float IVA_LOWPASS_FREQ = 2500;
-
+		[BDAPersistantSettingsField]
 		public static bool PEACE_MODE = false;
 
 		//==================
@@ -161,6 +183,9 @@ namespace BahaTurret
 
 		public enum BDATeams{A, B, None};
 
+		//competition mode
+		float competitionDist = 8000;
+		string compDistGui = "8000";
 
 
 		//common textures
@@ -422,6 +447,8 @@ namespace BahaTurret
 				GameEvents.onVesselChange.Add(VesselChange);
 			}
 		}
+
+
 		
 		void Update()
 		{
@@ -511,17 +538,28 @@ namespace BahaTurret
 		{
 			if(HighLogic.LoadedSceneIsFlight)
 			{
-				DrawAimerCursor();
+				//UpdateCursorState();
 			}
+
+
 		}
 
 
 
-		void DrawAimerCursor()
+		public void UpdateCursorState()
 		{
 			if(ActiveWeaponManager == null)
 			{
-				Screen.showCursor = true;
+				drawCursor = false;
+				//Screen.showCursor = true;
+				Cursor.visible = true;
+				return;
+			}
+
+			if(!GAME_UI_ENABLED || CameraMouseLook.MouseLocked)
+			{
+				drawCursor = false;
+				Cursor.visible = false;
 				return;
 			}
 
@@ -536,7 +574,8 @@ namespace BahaTurret
 						ModuleWeapon mw = ActiveWeaponManager.selectedWeapon.GetPart().FindModuleImplementing<ModuleWeapon>();
 						if(mw.weaponState == ModuleWeapon.WeaponStates.Enabled && mw.maxPitch > 1 && !mw.slaved && !mw.aiControlled)
 						{
-							Screen.showCursor = false;
+							//Screen.showCursor = false;
+							Cursor.visible = false;
 							drawCursor = true;
 							return;
 						}
@@ -546,7 +585,8 @@ namespace BahaTurret
 						RocketLauncher rl = ActiveWeaponManager.selectedWeapon.GetPart().FindModuleImplementing<RocketLauncher>();
 						if(rl.readyToFire && rl.turret)
 						{
-							Screen.showCursor = false;
+							//Screen.showCursor = false;
+							Cursor.visible = false;
 							drawCursor = true;
 							return;
 						}
@@ -554,7 +594,8 @@ namespace BahaTurret
 				}
 			}
 
-			Screen.showCursor = true;
+			//Screen.showCursor = true;
+			Cursor.visible = true;
 		}
 		
 	
@@ -564,6 +605,7 @@ namespace BahaTurret
 			if(v.isActiveVessel)
 			{
 				GetWeaponManager();
+				BDArmorySettings.Instance.UpdateCursorState();
 			}
 		}
 		
@@ -584,74 +626,9 @@ namespace BahaTurret
 			try
 			{
 				Debug.Log ("== BDArmory : Loading settings.cfg ==");
-				ConfigNode fileNode = ConfigNode.Load("GameData/BDArmory/settings.cfg");
 
-				if(!fileNode.HasNode("BDASettings"))
-				{
-					fileNode.AddNode("BDASettings");
-				}
-
-				ConfigNode cfg = fileNode.GetNode("BDASettings");
-
-				//if(cfg.HasValue("FireKey")) FIRE_KEY = cfg.GetValue("FireKey");	
-				
-				if(cfg.HasValue("INSTAKILL")) INSTAKILL = bool.Parse(cfg.GetValue("INSTAKILL"));	
-				
-				if(cfg.HasValue("BULLET_HITS")) BULLET_HITS = bool.Parse(cfg.GetValue("BULLET_HITS"));	
-				
-				if(cfg.HasValue("PHYSICS_RANGE")) PHYSICS_RANGE = float.Parse(cfg.GetValue("PHYSICS_RANGE"));	
-				
-				if(cfg.HasValue("EJECT_SHELLS")) EJECT_SHELLS = bool.Parse(cfg.GetValue("EJECT_SHELLS"));
-				
-				if(cfg.HasValue("INFINITE_AMMO")) INFINITE_AMMO = bool.Parse(cfg.GetValue("INFINITE_AMMO"));
-				
-				if(cfg.HasValue("DRAW_DEBUG_LINES")) DRAW_DEBUG_LINES = bool.Parse(cfg.GetValue("DRAW_DEBUG_LINES"));
-				
-				if(cfg.HasValue("DRAW_AIMERS")) DRAW_AIMERS = bool.Parse(cfg.GetValue ("DRAW_AIMERS"));
-				
-				if(cfg.HasValue("AIM_ASSIST")) AIM_ASSIST = bool.Parse(cfg.GetValue("AIM_ASSIST"));
-				
-				if(cfg.HasValue("REMOTE_SHOOTING")) REMOTE_SHOOTING = bool.Parse(cfg.GetValue("REMOTE_SHOOTING"));
-				
-				if(cfg.HasValue("DMG_MULTIPLIER")) DMG_MULTIPLIER = float.Parse(cfg.GetValue("DMG_MULTIPLIER"));
-				
-				if(cfg.HasValue("FLARE_CHANCE_FACTOR")) FLARE_CHANCE_FACTOR = float.Parse(cfg.GetValue("FLARE_CHANCE_FACTOR"));
-				
-				if(cfg.HasValue("BOMB_CLEARANCE_CHECK")) BOMB_CLEARANCE_CHECK = bool.Parse(cfg.GetValue("BOMB_CLEARANCE_CHECK"));
-
-				if(cfg.HasValue("SMART_GUARDS")) SMART_GUARDS = bool.Parse(cfg.GetValue("SMART_GUARDS"));
-
-				if(cfg.HasValue("MAX_BULLET_RANGE")) MAX_BULLET_RANGE = float.Parse(cfg.GetValue("MAX_BULLET_RANGE"));	
-
-				if(cfg.HasValue("TRIGGER_HOLD_TIME")) TRIGGER_HOLD_TIME = float.Parse(cfg.GetValue("TRIGGER_HOLD_TIME"));
-
-				if(cfg.HasValue("ALLOW_LEGACY_TARGETING")) ALLOW_LEGACY_TARGETING = bool.Parse(cfg.GetValue("ALLOW_LEGACY_TARGETING"));
-
-				if(cfg.HasValue("TARGET_CAM_RESOLUTION")) TARGET_CAM_RESOLUTION = float.Parse(cfg.GetValue("TARGET_CAM_RESOLUTION"));
-
-				if(cfg.HasValue("BW_TARGET_CAM")) BW_TARGET_CAM = bool.Parse(cfg.GetValue("BW_TARGET_CAM"));
-
-				if(cfg.HasValue("SMOKE_DEFLECTION_FACTOR")) SMOKE_DEFLECTION_FACTOR = float.Parse(cfg.GetValue("SMOKE_DEFLECTION_FACTOR"));
-
-				if(cfg.HasValue("FLARE_THERMAL")) FLARE_THERMAL = float.Parse(cfg.GetValue("FLARE_THERMAL"));
-
-				if(cfg.HasValue("BDARMORY_UI_VOLUME")) BDARMORY_UI_VOLUME = float.Parse(cfg.GetValue("BDARMORY_UI_VOLUME"));
-
-				if(cfg.HasValue("BDARMORY_WEAPONS_VOLUME")) BDARMORY_WEAPONS_VOLUME = float.Parse(cfg.GetValue("BDARMORY_WEAPONS_VOLUME"));
-
-				if(cfg.HasValue("MAX_GUARD_VISUAL_RANGE")) MAX_GUARD_VISUAL_RANGE = float.Parse(cfg.GetValue("MAX_GUARD_VISUAL_RANGE"));
-
-				if(cfg.HasValue("GLOBAL_LIFT_MULTIPLIER")) GLOBAL_LIFT_MULTIPLIER = float.Parse(cfg.GetValue("GLOBAL_LIFT_MULTIPLIER"));
-
-				if(cfg.HasValue("GLOBAL_DRAG_MULTIPLIER")) GLOBAL_DRAG_MULTIPLIER = float.Parse(cfg.GetValue("GLOBAL_DRAG_MULTIPLIER"));
-
-				if(cfg.HasValue("IVA_LOWPASS_FREQ")) IVA_LOWPASS_FREQ = float.Parse(cfg.GetValue("IVA_LOWPASS_FREQ"));
-
-				if(cfg.HasValue("PEACE_MODE")) PEACE_MODE = bool.Parse(cfg.GetValue("PEACE_MODE"));
-
-				if(cfg.HasValue("SHELL_COLLISIONS")) SHELL_COLLISIONS = bool.Parse(cfg.GetValue("SHELL_COLLISIONS"));
-
-				BDInputSettingsFields.LoadSettings(fileNode);
+				BDAPersistantSettingsField.Load();
+				BDInputSettingsFields.LoadSettings();
 			}
 			catch(NullReferenceException)
 			{
@@ -664,50 +641,10 @@ namespace BahaTurret
 			try
 			{
 				Debug.Log("== BDArmory : Saving settings.cfg ==	");
-				ConfigNode fileNode = ConfigNode.Load("GameData/BDArmory/settings.cfg");
 
+				BDAPersistantSettingsField.Save();
 
-				if(!fileNode.HasNode("BDASettings"))
-				{
-					fileNode.AddNode("BDASettings");
-				}
-
-				ConfigNode cfg = fileNode.GetNode("BDASettings");
-
-
-				//cfg.SetValue("FireKey", FIRE_KEY, true);
-				cfg.SetValue("INSTAKILL", INSTAKILL.ToString(), true);
-				cfg.SetValue("BULLET_HITS", BULLET_HITS.ToString(), true);
-				cfg.SetValue("PHYSICS_RANGE", PHYSICS_RANGE.ToString(), true);
-				cfg.SetValue("EJECT_SHELLS", EJECT_SHELLS.ToString(), true);
-				cfg.SetValue("INFINITE_AMMO", INFINITE_AMMO.ToString(), true);
-				cfg.SetValue("DRAW_DEBUG_LINES", DRAW_DEBUG_LINES.ToString(), true);
-				cfg.SetValue("DRAW_AIMERS", DRAW_AIMERS.ToString(), true);
-				cfg.SetValue("AIM_ASSIST", AIM_ASSIST.ToString(), true);
-				cfg.SetValue("REMOTE_SHOOTING", REMOTE_SHOOTING.ToString(), true);
-				cfg.SetValue("DMG_MULTIPLIER", DMG_MULTIPLIER.ToString(), true);
-				cfg.SetValue("FLARE_CHANCE_FACTOR", FLARE_CHANCE_FACTOR.ToString(), true);
-				cfg.SetValue("BOMB_CLEARANCE_CHECK", BOMB_CLEARANCE_CHECK.ToString(), true);
-				cfg.SetValue("SMART_GUARDS", SMART_GUARDS.ToString(), true);
-				cfg.SetValue("TRIGGER_HOLD_TIME", TRIGGER_HOLD_TIME.ToString(), true);
-				cfg.SetValue("ALLOW_LEGACY_TARGETING", ALLOW_LEGACY_TARGETING.ToString(), true);
-				cfg.SetValue("TARGET_CAM_RESOLUTION", TARGET_CAM_RESOLUTION.ToString(), true);
-				cfg.SetValue("BW_TARGET_CAM", BW_TARGET_CAM.ToString(), true);
-				cfg.SetValue("SMOKE_DEFLECTION_FACTOR", SMOKE_DEFLECTION_FACTOR.ToString(), true);
-				cfg.SetValue("FLARE_THERMAL", FLARE_THERMAL.ToString(), true);
-				cfg.SetValue("BDARMORY_UI_VOLUME", BDARMORY_UI_VOLUME.ToString(), true);
-				cfg.SetValue("BDARMORY_WEAPONS_VOLUME", BDARMORY_WEAPONS_VOLUME.ToString(), true);
-				cfg.SetValue("GLOBAL_LIFT_MULTIPLIER", GLOBAL_LIFT_MULTIPLIER.ToString(), true);
-				cfg.SetValue("GLOBAL_DRAG_MULTIPLIER", GLOBAL_DRAG_MULTIPLIER.ToString(), true);
-				cfg.SetValue("IVA_LOWPASS_FREQ", IVA_LOWPASS_FREQ.ToString(), true);
-				cfg.SetValue("MAX_BULLET_RANGE", MAX_BULLET_RANGE.ToString(), true);
-				cfg.SetValue("PEACE_MODE", PEACE_MODE.ToString(), true);
-				cfg.SetValue("MAX_GUARD_VISUAL_RANGE", MAX_GUARD_VISUAL_RANGE.ToString(), true);
-				cfg.SetValue("SHELL_COLLISIONS", SHELL_COLLISIONS.ToString(), true);
-
-				BDInputSettingsFields.SaveSettings(fileNode);
-
-				fileNode.Save ("GameData/BDArmory/settings.cfg");
+				BDInputSettingsFields.SaveSettings();
 
 				if(OnSavedSettings!=null)
 				{
@@ -732,7 +669,8 @@ namespace BahaTurret
 				{
 					settingsRect = GUI.Window(129419, settingsRect, SettingsGUI, GUIContent.none);
 				}
-				
+
+
 				if(drawCursor)
 				{
 					//mouse cursor
@@ -744,7 +682,7 @@ namespace BahaTurret
 					GUI.DrawTexture(cursorRect, cursorTexture);	
 					GUI.depth = origDepth;
 				}
-				
+
 				if(toolbarGuiEnabled && HighLogic.LoadedSceneIsFlight)
 				{
 					toolbarWindowRect = GUI.Window(321, toolbarWindowRect, ToolbarGUI, "BDA Weapon Manager", HighLogic.Skin.window);
@@ -772,6 +710,11 @@ namespace BahaTurret
 			}
 		}
 
+
+		public bool hasVS = false;
+		public bool showVSGUI = false;
+
+
 		float rippleHeight = 0;
 		float weaponsHeight = 0;
 		float guardHeight = 0;
@@ -781,7 +724,7 @@ namespace BahaTurret
 
 		void ToolbarGUI(int windowID)
 		{
-			GUI.DragWindow(new Rect(30,0,toolWindowWidth-60, 30));
+			GUI.DragWindow(new Rect(30,0,toolWindowWidth-90, 30));
 
 			float line = 0;
 			float leftIndent = 10;
@@ -799,17 +742,30 @@ namespace BahaTurret
 			*/
 			line += 1.25f;
 			line += 0.25f;
+
+			//SETTINGS BUTTON
+			if(!BDKeyBinder.current && GUI.Button(new Rect(toolWindowWidth - 30, 4, 26, 26), settingsIconTexture, HighLogic.Skin.button))
+			{
+				ToggleSettingsGUI();
+			}
+
+			//vesselswitcher button
+			if(hasVS)
+			{
+				GUIStyle vsStyle = showVSGUI ? HighLogic.Skin.box : HighLogic.Skin.button;
+				if(GUI.Button(new Rect(toolWindowWidth - 30 - 28, 4, 26, 26), "VS", vsStyle))
+				{
+					showVSGUI = !showVSGUI;
+				}
+			}
+
 			
 			if(ActiveWeaponManager!=null)
 			{
 				//MINIMIZE BUTTON
 				toolMinimized = GUI.Toggle(new Rect(4, 4, 26, 26), toolMinimized, "_", toolMinimized ? HighLogic.Skin.box : HighLogic.Skin.button);
 			
-				//SETTINGS BUTTON
-				if(!BDKeyBinder.current && GUI.Button(new Rect(toolWindowWidth - 30, 4, 26, 26), settingsIconTexture, HighLogic.Skin.button))
-				{
-					ToggleSettingsGUI();
-				}
+
 
 				GUIStyle armedLabelStyle;
 				Rect armedRect = new Rect(leftIndent, contentTop + (line * entryHeight), contentWidth / 2, entryHeight);
@@ -866,18 +822,32 @@ namespace BahaTurret
 				//if weapon can ripple, show option and slider.
 				if(ActiveWeaponManager.hasLoadedRippleData && ActiveWeaponManager.canRipple)
 				{
-					string rippleText = ActiveWeaponManager.rippleFire ? "Ripple: " + ActiveWeaponManager.rippleRPM.ToString("0") + " RPM" : "Ripple: OFF";
-					GUIStyle rippleStyle = ActiveWeaponManager.rippleFire ? HighLogic.Skin.box : HighLogic.Skin.button;
-					if(GUI.Button(new Rect(leftIndent, contentTop + (line * entryHeight), contentWidth / 2, entryHeight * 1.25f), rippleText, rippleStyle))
+					if(ActiveWeaponManager.selectedWeapon.GetWeaponClass() == WeaponClasses.Gun)
 					{
-						ActiveWeaponManager.ToggleRippleFire();
+						string rippleText = ActiveWeaponManager.rippleFire ? "Barrage: " + ActiveWeaponManager.gunRippleRpm.ToString("0") + " RPM" : "Salvo";
+						GUIStyle rippleStyle = ActiveWeaponManager.rippleFire ? HighLogic.Skin.box : HighLogic.Skin.button;
+						if(GUI.Button(new Rect(leftIndent, contentTop + (line * entryHeight), contentWidth / 2, entryHeight * 1.25f), rippleText, rippleStyle))
+						{
+							ActiveWeaponManager.ToggleRippleFire();
+						}
+		
+						rippleHeight = Mathf.Lerp(rippleHeight, 1.25f, 0.15f);
 					}
-					if(ActiveWeaponManager.rippleFire)
+					else
 					{
-						Rect sliderRect = new Rect(leftIndent + (contentWidth / 2) + 2, contentTop + (line * entryHeight) + 6.5f, (contentWidth / 2) - 2, 12);
-						ActiveWeaponManager.rippleRPM = GUI.HorizontalSlider(sliderRect, ActiveWeaponManager.rippleRPM, 100, 1600, rippleSliderStyle, rippleThumbStyle);
+						string rippleText = ActiveWeaponManager.rippleFire ? "Ripple: " + ActiveWeaponManager.rippleRPM.ToString("0") + " RPM" : "Ripple: OFF";
+						GUIStyle rippleStyle = ActiveWeaponManager.rippleFire ? HighLogic.Skin.box : HighLogic.Skin.button;
+						if(GUI.Button(new Rect(leftIndent, contentTop + (line * entryHeight), contentWidth / 2, entryHeight * 1.25f), rippleText, rippleStyle))
+						{
+							ActiveWeaponManager.ToggleRippleFire();
+						}
+						if(ActiveWeaponManager.rippleFire)
+						{
+							Rect sliderRect = new Rect(leftIndent + (contentWidth / 2) + 2, contentTop + (line * entryHeight) + 6.5f, (contentWidth / 2) - 2, 12);
+							ActiveWeaponManager.rippleRPM = GUI.HorizontalSlider(sliderRect, ActiveWeaponManager.rippleRPM, 100, 1600, rippleSliderStyle, rippleThumbStyle);
+						}
+						rippleHeight = Mathf.Lerp(rippleHeight, 1.25f, 0.15f);
 					}
-					rippleHeight = Mathf.Lerp(rippleHeight, 1.25f, 0.15f);
 				}
 				else
 				{
@@ -1396,6 +1366,44 @@ namespace BahaTurret
 				physicsRangeGui = PHYSICS_RANGE.ToString();
 				ApplyPhysRange();
 			}
+			line++;
+			line++;
+
+			//competition mode
+			if(HighLogic.LoadedSceneIsFlight)
+			{
+				GUI.Label(SLineRect(line), "= Dogfight Competition =", centerLabel);
+				line++;
+				if(!BDACompetitionMode.Instance.competitionStarting)
+				{
+					compDistGui = GUI.TextField(SRightRect(line), compDistGui);
+					GUI.Label(SLeftRect(line), "Competition Distance");
+					float cDist;
+					if(float.TryParse(compDistGui, out cDist))
+					{
+						competitionDist = cDist;
+					}
+					line++;
+
+					if(GUI.Button(SRightRect(line), "Start Competition"))
+					{
+						competitionDist = Mathf.Clamp(competitionDist, 2000f, 20000f);
+						compDistGui = competitionDist.ToString();
+						BDACompetitionMode.Instance.StartCompetitionMode(competitionDist);
+						SaveConfig();
+						settingsGuiEnabled = false;
+					}
+				}
+				else
+				{
+					GUI.Label(SLeftRect(line), "Starting Competition... (" + compDistGui + ")");
+					line++;
+					if(GUI.Button(SLeftRect(line), "Cancel"))
+					{
+						BDACompetitionMode.Instance.StopCompetition();
+					}
+				}
+			}
 			
 			line++;
 			line++;
@@ -1523,7 +1531,10 @@ namespace BahaTurret
 		
 		public void ApplyPhysRange()
 		{
+
 			if(PHYSICS_RANGE <= 2500) PHYSICS_RANGE = 0;
+
+
 
 			if(!HighLogic.LoadedSceneIsFlight)
 			{

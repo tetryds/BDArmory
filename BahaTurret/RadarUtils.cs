@@ -33,7 +33,7 @@ namespace BahaTurret
 			//setup shader first
 			if(!radarShader)
 			{
-				radarShader = BDAShaderLoader.LoadManifestShader("BahaTurret.UnlitBlack.shader");
+				radarShader = BDAShaderLoader.UnlitBlackShader;//.LoadManifestShader("BahaTurret.UnlitBlack.shader");
 			}
 
 			//then setup textures
@@ -299,7 +299,7 @@ namespace BahaTurret
 			{
 				if(TerrainCheck(ray.origin, lockedVessel.transform.position))
 				{
-					radar.UnlockTargetAt(lockIndex); //blocked by terrain
+					radar.UnlockTargetAt(lockIndex, true); //blocked by terrain
 					return;
 				}
 
@@ -318,13 +318,13 @@ namespace BahaTurret
 				}
 				else
 				{
-					radar.UnlockTargetAt(lockIndex);
+					radar.UnlockTargetAt(lockIndex, true);
 					return;
 				}
 			}
 			else
 			{
-				radar.UnlockTargetAt(lockIndex);
+				radar.UnlockTargetAt(lockIndex, true);
 			}
 		}
 
@@ -349,6 +349,8 @@ namespace BahaTurret
 			results.foundAGM = false;
 			results.firingAtMe = false;
 			results.missileThreatDistance = float.MaxValue;
+            results.threatVessel = null;
+            results.threatWeaponManager = null;
 
 			if(!myWpnManager || !referenceTransform)
 			{
@@ -395,22 +397,24 @@ namespace BahaTurret
 								if(missile = tInfo.missileModule)
 								{
 									results.foundMissile = true;
+									results.threatVessel = missile.vessel;
 									Vector3 vectorFromMissile = myWpnManager.vessel.CoM - missile.part.transform.position;
 									Vector3 relV = missile.vessel.srf_velocity - myWpnManager.vessel.srf_velocity;
 									bool approaching = Vector3.Dot(relV, vectorFromMissile) > 0;
 									if(missile.hasFired && missile.timeIndex > 1 && approaching && (missile.targetPosition - (myWpnManager.vessel.CoM + (myWpnManager.vessel.rb_velocity * Time.fixedDeltaTime))).sqrMagnitude < 3600)
 									{
-										//Debug.Log("found missile targeting me");
 										if(missile.targetingMode == MissileLauncher.TargetingModes.Heat)
 										{
 											results.foundHeatMissile = true;
 											results.missileThreatDistance = Mathf.Min(results.missileThreatDistance, Vector3.Distance(missile.part.transform.position, myWpnManager.part.transform.position));
+											results.threatPosition = missile.transform.position;
 											break;
 										}
 										else if(missile.targetingMode == MissileLauncher.TargetingModes.Radar)
 										{
 											results.foundRadarMissile = true;
 											results.missileThreatDistance = Mathf.Min(results.missileThreatDistance, Vector3.Distance(missile.part.transform.position, myWpnManager.part.transform.position));
+											results.threatPosition = missile.transform.position;
 										}
 										else if(missile.targetingMode == MissileLauncher.TargetingModes.Laser)
 										{
@@ -428,19 +432,23 @@ namespace BahaTurret
 							else
 							{
 								//check if its shooting guns at me
-								if(!results.firingAtMe)
-								{
+								//if(!results.firingAtMe)       //more work, but we can't afford to be incorrect picking the closest threat
+								//{
 									foreach(var weapon in vessel.FindPartModulesImplementing<ModuleWeapon>())
 									{
-										if(!weapon.isFiring) continue;
+										if(!weapon.recentlyFiring) continue;
 										if(Vector3.Dot(weapon.fireTransforms[0].forward, vesselDirection) > 0) continue;
 
-										if(Vector3.Angle(weapon.fireTransforms[0].forward, -vesselDirection) < 6500 / vesselDistance)
+										if(Vector3.Angle(weapon.fireTransforms[0].forward, -vesselDirection) < 6500 / vesselDistance && (!results.firingAtMe || (weapon.vessel.ReferenceTransform.position - position).magnitude < (results.threatPosition - position).magnitude))
 										{
 											results.firingAtMe = true;
+											results.threatPosition = weapon.vessel.transform.position;
+                                            results.threatVessel = weapon.vessel;
+                                            results.threatWeaponManager = weapon.weaponManager;
+                                            break;
 										}
 									}
-								}
+								//}
 							}
 						}
 					}
@@ -474,7 +482,16 @@ namespace BahaTurret
 			float notchFactor = 1;
 			float angleFromUp = Vector3.Angle(targetDirection,upVector);
 			float lookDownAngle = angleFromUp-90;
-			if(lookDownAngle > 5) notchFactor = Mathf.Clamp(targetClosureV.sqrMagnitude/Mathf.Pow(60,2), 0.1f, 1f);
+
+			if(lookDownAngle > 5)
+			{
+				notchFactor = Mathf.Clamp(targetClosureV.sqrMagnitude / 3600f, 0.1f, 1f);
+			}
+			else
+			{
+				notchFactor = Mathf.Clamp(targetClosureV.sqrMagnitude / 3600f, 0.8f, 3f);
+			}
+
 			float groundClutterFactor = Mathf.Clamp((90/angleFromUp), 0.25f, 1.85f);
 			sig *= groundClutterFactor;
 			sig *= notchFactor;

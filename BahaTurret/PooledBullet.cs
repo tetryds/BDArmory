@@ -105,7 +105,7 @@ namespace BahaTurret
 			if(!lightFlash)
 			{
 				lightFlash = gameObject.AddComponent<Light>();
-				light.type = LightType.Point;
+				lightFlash.type = LightType.Point;
 				lightFlash.range = 8;
 				lightFlash.intensity = 1;
 			}
@@ -131,7 +131,7 @@ namespace BahaTurret
 			if(!shaderInitialized)
 			{
 				shaderInitialized = true;
-				bulletShader = BDAShaderLoader.LoadManifestShader("BahaTurret.BulletShader.shader");
+				bulletShader = BDAShaderLoader.BulletShader;//.LoadManifestShader("BahaTurret.BulletShader.shader");
 			}
 
 			if(!wasInitiated)
@@ -173,13 +173,13 @@ namespace BahaTurret
 				return;
 			}
 			Camera currentCam = Camera.current;
-			if(currentCam == FlightCamera.fetch.cameras[0] || currentCam == FlightCamera.fetch.cameras[1])
+			if(TargetingCamera.IsTGPCamera(currentCam))
 			{
-				UpdateWidth(currentCam, 1);
+				UpdateWidth(currentCam, 4);
 			}
 			else
 			{
-				UpdateWidth(currentCam, 4);
+				UpdateWidth(currentCam, 1);
 			}
 		}
 			
@@ -311,7 +311,7 @@ namespace BahaTurret
 							{
 								heatDamage = (float)hitPart.maxTemp + 100; //make heat damage equal to the part's max temperture, effectively instakilling any part it hits
 							}
-							if(BDArmorySettings.DRAW_DEBUG_LINES) Debug.Log("Hit! damage applied: " + heatDamage); //debugging stuff
+							if(BDArmorySettings.DRAW_DEBUG_LABELS) Debug.Log("Hit! damage applied: " + heatDamage); //debugging stuff
 						
 							if(hitPart.vessel != sourceVessel) hitPart.temperature += heatDamage;  //apply heat damage to the hit part.
 
@@ -401,7 +401,7 @@ namespace BahaTurret
 						{
 							if(bulletType == PooledBulletTypes.Explosive)
 							{
-								ExplosionFX.CreateExplosion(hit.point, radius, blastPower, blastHeat, sourceVessel, currentVelocity.normalized, explModelPath, explSoundPath);
+								ExplosionFX.CreateExplosion(hit.point - (ray.direction*0.1f), radius, blastPower, blastHeat, sourceVessel, currentVelocity.normalized, explModelPath, explSoundPath);
 							}
 							else if(BDArmorySettings.BULLET_HITS)
 							{

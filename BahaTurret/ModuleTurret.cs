@@ -121,6 +121,8 @@ namespace BahaTurret
 				audioSource.Play();
 				audioSource.volume = 0;
 				audioSource.pitch = 0;
+				audioSource.priority = 9999;
+				audioSource.spatialBlend = 1;
 
 				lastTurretDirection = yawTransform.parent.InverseTransformDirection(pitchTransform.forward);
 

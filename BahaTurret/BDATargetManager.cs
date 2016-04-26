@@ -11,6 +11,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using KSP.UI.Screens;
 
 
 namespace BahaTurret
@@ -29,6 +30,8 @@ namespace BahaTurret
 		public static List<DestructibleBuilding> LoadedBuildings;
 
 		public static List<Vessel> LoadedVessels;
+
+		public static BDATargetManager Instance;
 
 
 
@@ -51,6 +54,8 @@ namespace BahaTurret
 			GameEvents.onVesselGoOffRails.Add(AddVessel);
 			GameEvents.onVesselCreate.Add(AddVessel);
 			GameEvents.onVesselDestroy.Add(CleanVesselList);
+
+			Instance = this;
 		}
 
 		void OnDestroy()
@@ -93,9 +98,11 @@ namespace BahaTurret
 
 			FiredMissiles = new List<MissileLauncher>();
 
-			AddToolbarButton();
+			//AddToolbarButton();
+			StartCoroutine(ToolbarButtonRoutine());
 
 		}
+
 
 		void AddBuilding(DestructibleBuilding b)
 		{
@@ -140,8 +147,21 @@ namespace BahaTurret
 					Texture buttonTexture = GameDatabase.Instance.GetTexture(BDArmorySettings.textureDir + "icon", false);
 					ApplicationLauncher.Instance.AddModApplication(ShowToolbarGUI, HideToolbarGUI, Dummy, Dummy, Dummy, Dummy, ApplicationLauncher.AppScenes.FLIGHT, buttonTexture);
 					hasAddedButton = true;
+
 				}
 			}
+		}
+
+		IEnumerator ToolbarButtonRoutine()
+		{
+			if(hasAddedButton) yield break;
+			if(!HighLogic.LoadedSceneIsFlight) yield break;
+			while(!ApplicationLauncher.Ready)
+			{
+				yield return null;
+			}
+
+			AddToolbarButton();
 		}
 		public void ShowToolbarGUI()
 		{
@@ -161,6 +181,7 @@ namespace BahaTurret
 			{
 				UpdateDebugLabels();
 			}
+
 		}
 
 
@@ -183,7 +204,7 @@ namespace BahaTurret
 		/// <returns>The laser target painter.</returns>
 		/// <param name="referenceTransform">Reference transform.</param>
 		/// <param name="maxBoreSight">Max bore sight.</param>
-		public static ModuleTargetingCamera GetLaserTarget(MissileLauncher ml)
+		public static ModuleTargetingCamera GetLaserTarget(MissileLauncher ml, bool parentOnly)
 		{
 			Transform referenceTransform = ml.transform;
 			float maxOffBoresight = ml.maxOffBoresight;
@@ -196,6 +217,10 @@ namespace BahaTurret
 					continue;
 				}
 
+				if(parentOnly && !(cam.vessel == ml.vessel || cam.vessel == ml.sourceVessel))
+				{
+					continue;
+				}
 
 
 				if(cam.cameraEnabled && cam.groundStabilized && cam.surfaceDetected && !cam.gimbalLimitReached)
@@ -256,7 +281,7 @@ namespace BahaTurret
 						if(!part) continue;
 						if(!allAspect)
 						{
-							if(!Misc.CheckSightLine(ray.origin, part.transform.position, 10000, 5, 5)) continue;
+							if(!Misc.CheckSightLineExactDistance(ray.origin, part.transform.position+vessel.rb_velocity, Vector3.Distance(part.transform.position,ray.origin), 5, 5)) continue;
 						}
 
 						float thisScore = (float)(part.thermalInternalFluxPrevious+part.skinTemperature) * (15/Mathf.Max(15,angle));
@@ -311,12 +336,6 @@ namespace BahaTurret
 
 			return finalData;
 		}
-
-
-
-
-
-
 
 
 		void UpdateDebugLabels()
@@ -444,7 +463,6 @@ namespace BahaTurret
 		void LoadGPSTargets(ConfigNode saveNode)
 		{
 			ConfigNode fileNode = ConfigNode.Load("GameData/BDArmory/gpsTargets.cfg");
-
 			string saveTitle = HighLogic.CurrentGame.Title;
 
 			if(fileNode != null && fileNode.HasNode("BDARMORY"))
@@ -649,10 +667,22 @@ namespace BahaTurret
 					return;
 				}
 			}
+			else
+			{
+				info.detectedTime = Time.time;
+			}
 		}
 
 		public static void ClearDatabase()
 		{
+			foreach(var t in TargetDatabase.Keys)
+			{
+				foreach(var target in TargetDatabase[t])
+				{
+					target.detectedTime = 0;
+				}
+			}
+
 			TargetDatabase[BDArmorySettings.BDATeams.A].Clear();
 			TargetDatabase[BDArmorySettings.BDATeams.B].Clear();
 		}
@@ -662,23 +692,100 @@ namespace BahaTurret
 			BDArmorySettings.BDATeams team = mf.team ? BDArmorySettings.BDATeams.B : BDArmorySettings.BDATeams.A;
 			TargetInfo finalTarget = null;
 
+            float finalTargetSuitability = 0;        //this will determine how suitable the target is, based on where it is located relative to the targeting vessel and how far it is
+
 			foreach(var target in TargetDatabase[team])
 			{
 				if(target.numFriendliesEngaging >= 2) continue;
 				if(target && target.Vessel && !target.isLanded && !target.isMissile)
 				{
-					if(finalTarget == null || target.numFriendliesEngaging < finalTarget.numFriendliesEngaging)
+                    Vector3 targetRelPos = target.Vessel.vesselTransform.position - mf.vessel.vesselTransform.position;
+                    float targetSuitability = Vector3.Dot(targetRelPos.normalized, mf.vessel.ReferenceTransform.up);       //prefer targets ahead to those behind
+                    targetSuitability += 500 / (targetRelPos.magnitude + 100);
+
+                    if (finalTarget == null || (target.numFriendliesEngaging < finalTarget.numFriendliesEngaging) || targetSuitability > finalTargetSuitability + finalTarget.numFriendliesEngaging)
 					{
 						finalTarget = target;
+                        finalTargetSuitability = targetSuitability;
 					}
 				}
 			}
 
 			return finalTarget;
 		}
-		 
 
-		public static TargetInfo GetClosestTarget(MissileFire mf)
+        //this will search for an AA target that is immediately in front of the AI during an extend when it would otherwise be helpless
+        public static TargetInfo GetAirToAirTargetAbortExtend(MissileFire mf, float maxDistance, float cosAngleCheck)
+        {
+            BDArmorySettings.BDATeams team = mf.team ? BDArmorySettings.BDATeams.B : BDArmorySettings.BDATeams.A;
+            TargetInfo finalTarget = null;
+
+            float finalTargetSuitability = 0;        //this will determine how suitable the target is, based on where it is located relative to the targeting vessel and how far it is
+
+            foreach (var target in TargetDatabase[team])
+            {
+                if (target && target.Vessel && !target.isLanded && !target.isMissile)
+                {
+                    Vector3 targetRelPos = target.Vessel.vesselTransform.position - mf.vessel.vesselTransform.position;
+
+                    float distance, dot;
+                    distance = targetRelPos.magnitude;
+                    dot = Vector3.Dot(targetRelPos.normalized, mf.vessel.ReferenceTransform.up);
+
+                    if (distance > maxDistance || cosAngleCheck > dot)
+                        continue;
+
+                    float targetSuitability = dot;       //prefer targets ahead to those behind
+                    targetSuitability += 500 / (distance + 100);        //same suitability check as above
+
+                    if (finalTarget == null || targetSuitability > finalTargetSuitability)      //just pick the most suitable one
+                    {
+                        finalTarget = target;
+                        finalTargetSuitability = targetSuitability;
+                    }
+                }
+            }
+
+            return finalTarget;
+        }
+        
+        //returns the nearest friendly target
+        public static TargetInfo GetClosestFriendly(MissileFire mf)
+        {
+            BDArmorySettings.BDATeams team = mf.team ? BDArmorySettings.BDATeams.A : BDArmorySettings.BDATeams.B;
+            TargetInfo finalTarget = null;
+
+            foreach (var target in TargetDatabase[team])
+            {
+                if (target && target.Vessel && target.weaponManager != mf)
+                {
+                    if (finalTarget == null || (target.IsCloser(finalTarget, mf)))
+                    {
+                        finalTarget = target;
+                    }
+                }
+            }
+
+            return finalTarget;
+        }
+
+        //returns the target that owns this weapon manager
+        public static TargetInfo GetTargetFromWeaponManager(MissileFire mf)
+        {
+            BDArmorySettings.BDATeams team = mf.team ? BDArmorySettings.BDATeams.A : BDArmorySettings.BDATeams.B;
+
+            foreach (var target in TargetDatabase[team])
+            {
+                if (target && target.Vessel && target.weaponManager == mf)
+                {
+                    return target;
+                }
+            }
+
+            return null;
+        }
+
+        public static TargetInfo GetClosestTarget(MissileFire mf)
 		{
 			BDArmorySettings.BDATeams team = mf.team ? BDArmorySettings.BDATeams.B : BDArmorySettings.BDATeams.A;
 			TargetInfo finalTarget = null;
@@ -810,6 +917,28 @@ namespace BahaTurret
 			return finalTarget;
 		}
 
+        //checks to see if a friendly is too close to the gun trajectory to fire them
+        public static bool CheckSafeToFireGuns(MissileFire weaponManager, Vector3 aimDirection, float safeDistance, float cosUnsafeAngle)
+        {
+            BDArmorySettings.BDATeams team = weaponManager.team ? BDArmorySettings.BDATeams.A : BDArmorySettings.BDATeams.B;
+            foreach (var friendlyTarget in TargetDatabase[team])
+            {
+                if (friendlyTarget && friendlyTarget.Vessel)
+                {
+                    float friendlyPosDot = Vector3.Dot(friendlyTarget.position - weaponManager.vessel.vesselTransform.position, aimDirection);
+                    if (friendlyPosDot > 0)  //only bother if the friendly is actually in front of us
+                    {
+                        float friendlyDistance = (friendlyTarget.position - weaponManager.vessel.vesselTransform.position).magnitude;
+                        float friendlyPosDotNorm = friendlyPosDot / friendlyDistance;       //scale down the dot to be a 0-1 so we can check it againts cosUnsafeAngle
+
+                        if (friendlyDistance < safeDistance && cosUnsafeAngle < friendlyPosDotNorm)           //if it's too close and it's within the Unsafe Angle, don't fire
+                            return false;
+                    }
+                }
+            }
+
+            return true;
+        }
 
 
 		void OnGUI()
@@ -818,7 +947,12 @@ namespace BahaTurret
 			{
 				GUI.Label(new Rect(600,100,600,600), debugString);	
 			}
+
+
 		}
+
+
+
 	}
 }
 

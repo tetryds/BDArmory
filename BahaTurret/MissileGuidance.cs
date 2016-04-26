@@ -62,6 +62,37 @@ namespace BahaTurret
 			}
 		}
 
+		public static bool GetBallisticGuidanceTarget(Vector3 targetPosition, Vector3 missilePosition, float missileSpeed, bool direct, out Vector3 finalTarget)
+		{
+			Vector3 up = VectorUtils.GetUpDirection(missilePosition);
+			Vector3 forward = Vector3.ProjectOnPlane(targetPosition - missilePosition, up);
+			float speed = missileSpeed;
+			float sqrSpeed = speed * speed;
+			float sqrSpeedSqr = sqrSpeed * sqrSpeed;
+			float g = (float)FlightGlobals.getGeeForceAtPosition(missilePosition).magnitude;
+			float height = FlightGlobals.getAltitudeAtPos(targetPosition)-FlightGlobals.getAltitudeAtPos(missilePosition);
+			float sqrRange = forward.sqrMagnitude;
+			float range = Mathf.Sqrt(sqrRange);
+
+			float plusOrMinus = direct ? -1 : 1;
+
+			float top = sqrSpeed + (plusOrMinus * Mathf.Sqrt(sqrSpeedSqr - (g * ((g * sqrRange + (2 * height * sqrSpeed))))));
+			float bottom = g * range;
+			float theta = Mathf.Atan(top / bottom);
+
+			if(!float.IsNaN(theta))
+			{
+				Vector3 finalVector = Quaternion.AngleAxis(theta * Mathf.Rad2Deg, Vector3.Cross(forward, up)) * forward;
+				finalTarget = missilePosition + (100 * finalVector);
+				return true;
+			}
+			else
+			{
+				finalTarget = Vector3.zero;
+				return false;
+			}
+		}
+
 		public static Vector3 GetBeamRideTarget(Ray beam, Vector3 currentPosition, Vector3 currentVelocity, float correctionFactor, float correctionDamping, Ray previousBeam)
 		{
 			float onBeamDistance = Vector3.Project(currentPosition - beam.origin, beam.direction).magnitude;
@@ -325,6 +356,13 @@ namespace BahaTurret
 		public static float GetRaycastRadarAltitude(Vector3 position)
 		{
 			Vector3 upDirection = -FlightGlobals.getGeeForceAtPosition(position).normalized;
+
+			float altAtPos = FlightGlobals.getAltitudeAtPos(position);
+			if(altAtPos < 0)
+			{
+				position += 2 * Mathf.Abs(altAtPos) * upDirection;
+			}
+
 			Ray ray = new Ray(position, -upDirection);
 			float rayDistance = FlightGlobals.getAltitudeAtPos(position);
 
@@ -343,6 +381,8 @@ namespace BahaTurret
 				return rayDistance;
 			}
 		}
+
+
 	}
 }
 

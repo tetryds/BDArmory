@@ -44,18 +44,33 @@ namespace BahaTurret
 			foreach(var sub in part.FindModelTransforms("submunition"))
 			{
 				submunitions.Add(sub.gameObject);
-				Rigidbody subRb = sub.gameObject.AddComponent<Rigidbody>();
-				subRb.isKinematic = true;
-				subRb.mass = part.mass / part.FindModelTransforms("submunition").Length;
+				if(HighLogic.LoadedSceneIsFlight)
+				{
+					Rigidbody subRb = sub.gameObject.GetComponent<Rigidbody>();
+					if(!subRb)
+					{
+						subRb = sub.gameObject.AddComponent<Rigidbody>();
+					}
+					subRb.isKinematic = true;
+					subRb.mass = part.mass / part.FindModelTransforms("submunition").Length;
+				}
+				sub.gameObject.SetActive(false);
 			}
 			
 			fairings = new List<GameObject>();
 			foreach(var fairing in part.FindModelTransforms("fairing"))
 			{
 				fairings.Add(fairing.gameObject);
-				Rigidbody fairingRb = fairing.gameObject.AddComponent<Rigidbody>();
-				fairingRb.isKinematic = true;
-				fairingRb.mass = 0.05f;
+				if(HighLogic.LoadedSceneIsFlight)
+				{
+					Rigidbody fairingRb = fairing.gameObject.GetComponent<Rigidbody>();
+					if(!fairingRb)
+					{
+						fairingRb = fairing.gameObject.AddComponent<Rigidbody>();
+					}
+					fairingRb.isKinematic = true;
+					fairingRb.mass = 0.05f;
+				}
 			}
 			
 			missileLauncher = part.GetComponent<MissileLauncher>();
@@ -89,16 +104,19 @@ namespace BahaTurret
 			
 			foreach(var sub in submunitions)
 			{
+				sub.SetActive(true);
 				sub.transform.parent = null;
 				Vector3 direction = (sub.transform.position - part.transform.position).normalized;
-				sub.rigidbody.isKinematic = false;
-				sub.rigidbody.velocity = part.rb.velocity + (UnityEngine.Random.Range(submunitionMaxSpeed/10, submunitionMaxSpeed) * direction);
+				Rigidbody subRB = sub.GetComponent<Rigidbody>();
+				subRB.isKinematic = false;
+				subRB.velocity = part.rb.velocity + (UnityEngine.Random.Range(submunitionMaxSpeed/10, submunitionMaxSpeed) * direction);
 				
 				Submunition subScript = sub.AddComponent<Submunition>();
 				subScript.enabled = true;
 				subScript.deployed = true;
 				subScript.sourceVessel = missileLauncher.sourceVessel;
 				subScript.blastForce = missileLauncher.blastPower;
+				subScript.blastHeat = missileLauncher.blastHeat;
 				subScript.blastRadius = missileLauncher.blastRadius;
 				subScript.subExplModelPath = subExplModelPath;
 				subScript.subExplSoundPath = subExplSoundPath;
@@ -108,8 +126,9 @@ namespace BahaTurret
 			foreach(var fairing in fairings)
 			{
 				Vector3 direction = (fairing.transform.position - part.transform.position).normalized;
-				fairing.rigidbody.isKinematic = false;
-				fairing.rigidbody.velocity = part.rb.velocity + ((submunitionMaxSpeed+2) * direction);
+				Rigidbody fRB = fairing.GetComponent<Rigidbody>();
+				fRB.isKinematic = false;
+				fRB.velocity = part.rb.velocity + ((submunitionMaxSpeed+2) * direction);
 				fairing.AddComponent<KSPForceApplier>();
 				fairing.GetComponent<KSPForceApplier>().drag = 0.2f;
 				ClusterBombFairing fairingScript = fairing.AddComponent<ClusterBombFairing>();
@@ -140,6 +159,7 @@ namespace BahaTurret
 		public bool deployed = false;
 		public float blastRadius;
 		public float blastForce;
+		public float blastHeat;
 		public string subExplModelPath;
 		public string subExplSoundPath;
 		public Vessel sourceVessel;
@@ -218,7 +238,7 @@ namespace BahaTurret
 		
 		void Detonate(Vector3 pos)
 		{
-			ExplosionFX.CreateExplosion(pos, blastRadius, blastForce, blastForce, sourceVessel, FlightGlobals.getUpAxis(), subExplModelPath, subExplSoundPath);
+			ExplosionFX.CreateExplosion(pos, blastRadius, blastForce, blastHeat, sourceVessel, FlightGlobals.getUpAxis(), subExplModelPath, subExplSoundPath);
 			GameObject.Destroy(gameObject); //destroy bullet on collision
 		}
 		

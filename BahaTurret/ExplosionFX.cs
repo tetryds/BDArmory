@@ -24,7 +24,7 @@ namespace BahaTurret
 			{
 				pe.emit = true;	
 
-				if(pe.useWorldSpace) pe.force = (4.49f * FlightGlobals.getGeeForceAtPosition(transform.position));
+				//if(pe.useWorldSpace) pe.force = (4.49f * FlightGlobals.getGeeForceAtPosition(transform.position));
 
 				if(pe.maxEnergy > maxTime)
 				{
@@ -81,8 +81,9 @@ namespace BahaTurret
 			ExplosionFX eFx = newExplosion.AddComponent<ExplosionFX>();
 			eFx.exSound = soundClip;
 			eFx.audioSource = newExplosion.AddComponent<AudioSource>();
-			eFx.audioSource.minDistance = 66;
-			eFx.audioSource.maxDistance = 4500;
+			eFx.audioSource.minDistance = 200;
+			eFx.audioSource.maxDistance = 5500;
+			eFx.audioSource.spatialBlend = 1;
 			eFx.range = radius;
 				
 			if(power <= 5)

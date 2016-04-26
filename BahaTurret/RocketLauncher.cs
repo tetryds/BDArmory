@@ -34,6 +34,9 @@ namespace BahaTurret
 		
 		[KSPField(isPersistant = false)]
 		public float blastForce;
+
+		[KSPField]
+		public float blastHeat = -1;
 		
 		[KSPField(isPersistant = false)]
 		public bool descendingOrder = true;
@@ -256,6 +259,7 @@ namespace BahaTurret
 				sfAudioSource.maxDistance = 2000;
 				sfAudioSource.dopplerLevel = 0;
 				sfAudioSource.priority = 230;
+				sfAudioSource.spatialBlend = 1;
 				
 				MakeRocketArray();
 				UpdateRocketScales();
@@ -308,6 +312,7 @@ namespace BahaTurret
 		IEnumerator DeployAnimRoutine(bool forward)
 		{
 			readyToFire = false;
+			BDArmorySettings.Instance.UpdateCursorState();
 
 			if(forward)
 			{
@@ -339,6 +344,7 @@ namespace BahaTurret
 			deployAnimState.speed = 0;
 
 			readyToFire = deployed;
+			BDArmorySettings.Instance.UpdateCursorState();
 		}
 
 		void UpdateAudio()
@@ -526,7 +532,7 @@ namespace BahaTurret
 			
 			if(rocketResource == null)
 			{
-				Debug.Log (part.partName+" doesn't carry the rocket resource it was meant to");	
+				Debug.Log (part.name +" doesn't carry the rocket resource it was meant to");	
 				return;
 			}
 			
@@ -547,6 +553,7 @@ namespace BahaTurret
 				rocket.spawnTransform = currentRocketTfm;
 				rocket.mass = rocketMass;
 				rocket.blastForce = blastForce;
+				rocket.blastHeat = blastHeat;
 				rocket.blastRadius = blastRadius;
 				rocket.thrust = thrust;
 				rocket.thrustTime = thrustTime;
@@ -767,6 +774,7 @@ namespace BahaTurret
 		public float thrustTime;
 		public float blastRadius;
 		public float blastForce;
+		public float blastHeat;
 		public string explModelPath;
 		public string explSoundPath;
 
@@ -990,7 +998,7 @@ namespace BahaTurret
 		{
 			BDArmorySettings.numberOfParticleEmitters--;
 			
-			ExplosionFX.CreateExplosion(pos, blastRadius, blastForce, blastForce, sourceVessel, rb.velocity.normalized, explModelPath, explSoundPath);
+			ExplosionFX.CreateExplosion(pos, blastRadius, blastForce, blastHeat, sourceVessel, rb.velocity.normalized, explModelPath, explSoundPath);
 
 			foreach(var emitter in pEmitters)
 			{

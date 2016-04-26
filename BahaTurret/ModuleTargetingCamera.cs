@@ -410,9 +410,9 @@ namespace BahaTurret
 				Vector3 camUp = cameraParentTransform.up;
 				if(eyeHolderTransform) camUp = Vector3.Cross(cameraParentTransform.forward, eyeHolderTransform.right);
 				cameraParentTransform.rotation = Quaternion.LookRotation(lookVector, camUp);
-				if(vessel.isActiveVessel && TargetingCamera.Instance && TargetingCamera.Instance.cameraTransform)
+				if(vessel.isActiveVessel && activeCam == this && TargetingCamera.cameraTransform)
 				{
-					TargetingCamera.Instance.cameraTransform.rotation = Quaternion.LookRotation(cameraParentTransform.forward, worldUp); 
+					TargetingCamera.cameraTransform.rotation = Quaternion.LookRotation(cameraParentTransform.forward, worldUp); 
 				}
 			}
 
@@ -1213,38 +1213,49 @@ namespace BahaTurret
 
 			RaycastHit rayHit;
 			Ray ray = new Ray(cameraParentTransform.position + (50*cameraParentTransform.forward), cameraParentTransform.forward);
-			if(Physics.Raycast(ray, out rayHit, maxRayDistance-50, 557057))
+			bool raycasted = Physics.Raycast(ray, out rayHit, maxRayDistance - 50, 557057);
+			if(raycasted)
 			{
-				groundStabilized = true;
-				groundTargetPosition = rayHit.point;
-
-				if(CoMLock)
+				if(FlightGlobals.getAltitudeAtPos(rayHit.point) < 0)
 				{
-					Part p = rayHit.collider.GetComponentInParent<Part>();
-					if(p && p.vessel && p.vessel.CoM!=Vector3.zero)
+					raycasted = false;
+				}
+				else
+				{
+					groundStabilized = true;
+					groundTargetPosition = rayHit.point;
+
+					if(CoMLock)
 					{
-						groundTargetPosition = p.vessel.CoM+(p.vessel.rb_velocity*Time.fixedDeltaTime);
-						StartCoroutine(StabilizeNextFrame());
+						Part p = rayHit.collider.GetComponentInParent<Part>();
+						if(p && p.vessel && p.vessel.CoM != Vector3.zero)
+						{
+							groundTargetPosition = p.vessel.CoM + (p.vessel.rb_velocity * Time.fixedDeltaTime);
+							StartCoroutine(StabilizeNextFrame());
+						}
+					}
+					Vector3d newGTP = VectorUtils.WorldPositionToGeoCoords(groundTargetPosition, vessel.mainBody);
+					if(newGTP != Vector3d.zero)
+					{
+						bodyRelativeGTP = newGTP;
 					}
 				}
-				Vector3d newGTP = VectorUtils.WorldPositionToGeoCoords(groundTargetPosition, vessel.mainBody);
-				if(newGTP!=Vector3d.zero)
-				{
-					bodyRelativeGTP = newGTP;
-				}
             }
-			else
+
+			if(!raycasted)
 			{
 				Vector3 upDir = VectorUtils.GetUpDirection(cameraParentTransform.position);
-				float altitude = (float)vessel.altitude; //MissileGuidance.GetRadarAltitude(vessel);
-				Plane surfacePlane = new Plane(upDir, vessel.transform.position-(altitude*upDir));
-				float enter;
-				if(surfacePlane.Raycast(ray, out enter))
+				double altitude = vessel.altitude; //MissileGuidance.GetRadarAltitude(vessel);
+				double radius = vessel.mainBody.Radius;
+			
+				Vector3d planetCenter = vessel.GetWorldPos3D() - ((vessel.altitude + vessel.mainBody.Radius) * vessel.upAxis);
+				double enter;
+				if(VectorUtils.SphereRayIntersect(ray, planetCenter, radius, out enter))
 				{
 					if(enter > 0)
 					{
 						groundStabilized = true;
-						groundTargetPosition = ray.GetPoint(enter);
+						groundTargetPosition = ray.GetPoint((float)enter);
 						Vector3d newGTP = VectorUtils.WorldPositionToGeoCoords(groundTargetPosition, vessel.mainBody);
 						if(newGTP != Vector3d.zero)
 						{
@@ -1429,7 +1440,7 @@ namespace BahaTurret
 			if(HighLogic.LoadedSceneIsFlight)
 			{
 				windowIsOpen = false;
-				if(weaponManager)
+				if(wpmr)
 				{
 					if(slaveTurrets)
 					{
